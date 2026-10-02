@@ -5,6 +5,7 @@ const path = require("path");
 const os = require("os");
 const { randomUUID } = require("crypto");
 const { execFile } = require("child_process");
+const { getPublicDepotIds } = require("./steam-depots");
 
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -524,6 +525,26 @@ const server = http.createServer(async (req, res) => {
       ok: false,
       message: "unauthorized",
     });
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/steam-depots?")) {
+    const appId = new URL(req.url, `http://${HOST}`).searchParams.get("appid") || "";
+    if (!/^\d{1,10}$/.test(appId)) {
+      sendJson(res, 400, { ok: false, message: "invalid_appid" });
+      return;
+    }
+    try {
+      let timeout;
+      const depotIds = await Promise.race([
+        getPublicDepotIds(appId),
+        new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("PICS timeout")), 8000); }),
+      ]).finally(() => clearTimeout(timeout));
+      sendJson(res, 200, { ok: true, appId, depotIds });
+    } catch (error) {
+      console.warn("[steam-depots] PICS lookup failed", { appId, error: error.message });
+      sendJson(res, 503, { ok: false, message: "pics_unavailable" });
+    }
     return;
   }
 
